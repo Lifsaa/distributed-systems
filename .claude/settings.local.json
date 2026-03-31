@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go version:*)",
+      "Bash(brew list:*)",
+      "Bash(brew install:*)",
+      "Bash(code --version)",
+      "Bash(mdfind:*)",
+      "WebSearch"
+    ]
+  }
+}
