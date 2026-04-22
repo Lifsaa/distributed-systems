@@ -14,10 +14,10 @@ import (
 func main() {
 	// CLI flags - all required, no defaults
 	// usage: go run . -input=data.txt -M=9 -R=3 -W=3
-	input := flag.String("input", "", "path to the input file (required)")
-	M := flag.Int("M", 0, "number of map splits (required)")
-	R := flag.Int("R", 0, "number of reduce buckets (required)")
-	W := flag.Int("W", 0, "number of worker goroutines (required)")
+	input := flag.String("input", "", "path to the input file")
+	M := flag.Int("M", 0, "number of map splits")
+	R := flag.Int("R", 0, "number of reduce buckets")
+	W := flag.Int("W", 0, "number of worker goroutines")
 	flag.Parse()
 
 	if *input == "" || *M == 0 || *R == 0 || *W == 0 {
