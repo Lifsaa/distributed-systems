@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
 	"golang.org/x/net/html"
 )
 
@@ -17,7 +18,7 @@ var stopWords = make(map[string]bool)
 
 func loadStopWords(filename string) error {
 	/*
-	reads stop words from a text file  into the stopWords map
+		reads stop words from a text file  into the stopWords map
 	*/
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -37,8 +38,8 @@ func loadStopWords(filename string) error {
 
 func cleanText(text string) []string {
 	/*
-	takes raw page text, returns cleaned and filtered words
-	removes punctuation, lowercases everything, strips stop words
+		takes raw page text, returns cleaned and filtered words
+		removes punctuation, lowercases everything, strips stop words
 	*/
 	text = strings.ToLower(text)
 
@@ -64,8 +65,8 @@ func cleanText(text string) []string {
 
 func crawl(pageURL string) (string, []string) {
 	/*
-	fetches a page and returns all visible text + all links found on it
-	returns empty if the request fails or status is not 2xx
+		fetches a page and returns all visible text + all links found on it
+		returns empty if the request fails or status is not 2xx
 	*/
 
 	// using NewRequest instead of http.Get so we can set headers
@@ -148,8 +149,8 @@ func crawl(pageURL string) (string, []string) {
 
 func addToIndex(words []string, pageURL string, index map[string][]string) {
 	/*
-	adds each word -> pageURL pair into the inverted index
-	if the word is new, append handles the nil slice automatically
+		adds each word -> pageURL pair into the inverted index
+		if the word is new, append handles the nil slice automatically
 	*/
 	for _, word := range words {
 		index[word] = append(index[word], pageURL)
@@ -158,7 +159,7 @@ func addToIndex(words []string, pageURL string, index map[string][]string) {
 
 func saveIndex(index map[string][]string, filename string) error {
 	/*
-	serializes the index map to a pretty-printed JSON file
+		serializes the index map to a pretty-printed JSON file
 	*/
 	// MarshalIndent converts a Go value to JSON bytes with indentation
 	data, err := json.MarshalIndent(index, "", "  ")
@@ -187,14 +188,14 @@ func main() {
 	logger := log.New(logFile, "", log.LstdFlags)
 
 	seeds := []string{
-		"https://books.toscrape.com/",
+		"https://en.wikipedia.org/wiki/Pizza",
 	}
 
 	frontier := seeds
 	visited := make(map[string]bool)
 	index := make(map[string][]string)
 	count := 0
-	maxPages := 10000000
+	maxPages := 10000
 
 	// time.Now records the start so we can measure total duration at the end
 	start := time.Now()
@@ -202,7 +203,7 @@ func main() {
 	// BFS loop: dequeue a URL, crawl it, add new links to the back of the frontier
 	for len(frontier) > 0 && count < maxPages {
 		pageURL := frontier[0]
-		frontier = frontier[1:] 
+		frontier = frontier[1:]
 
 		if visited[pageURL] {
 			continue

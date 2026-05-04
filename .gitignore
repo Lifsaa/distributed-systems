@@ -1,3 +1,24 @@
 # Claude Code
 .claude/
 CLAUDE.md
+.DS_Store
+*.zip
+output.txt
+
+# PA1 generated files
+pa1/index.json
+pa1/crawler.log
+
+# MapReduce generated files
+pa2/data.txt
+pa3/data.txt
+pa3/mapreduce
+pa3/mr-out-*
+pa3/split-*
+pa3/intermediate-*
+pa4/mr-output/
+pa4/mr-out-*
+pa4/split-*
+pa4/intermediate-*
+pa4/mapreduce
+pa4/pa4

@@ -1,0 +1,37 @@
+services:
+  coordinator:
+    build: .
+    environment:
+      - ROLE=coordinator
+      - SEED_FILE=/app/seed-urls.txt
+      - MAX_URLS=10000
+      - NUM_REDUCE=3
+    volumes:
+      - .:/app
+    networks:
+      - searchnet
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5001"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 10s
+
+  worker:
+    build: .
+    environment:
+      - ROLE=worker
+      - COORDINATOR_ADDR=coordinator:5001
+    volumes:
+      - .:/app
+      # Host-visible inverted index + intermediates (shared by all workers)
+      - ./mr-output:/tmp/mr
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - searchnet
+
+networks:
+  searchnet:
+    driver: bridge

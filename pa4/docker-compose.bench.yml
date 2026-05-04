@@ -1,0 +1,6 @@
+# Bench: docker compose -f docker-compose.yml -f docker-compose.bench.yml up --build --scale worker=5 --abort-on-container-exit
+services:
+  coordinator:
+    environment:
+      - MAX_URLS=100
+      - NUM_REDUCE=3

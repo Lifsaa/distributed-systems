@@ -1,0 +1,6 @@
+# Use: docker compose -f docker-compose.yml -f docker-compose.smoke.yml up --build --scale worker=2
+services:
+  coordinator:
+    environment:
+      - MAX_URLS=35
+      - NUM_REDUCE=3

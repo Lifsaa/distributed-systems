@@ -31,5 +31,5 @@ seeds := []string{
 Loaded from `stopword.txt`, one word per line. These are filtered out before indexing.
 
 ## Limits
-- Max pages: 10,000,000 (hard cap, stops automatically)
+- Max pages: 10,000 (hard cap, stops automatically)
 - Stops early if the frontier runs out of new links
