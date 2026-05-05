@@ -12,12 +12,17 @@ import (
 	"log"
 	"net"
 	"net/rpc"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 )
+
+// in-memory inverted index loaded once after reduce/replicate completes
+var indexMap map[string][]string
+var indexMu sync.RWMutex
 
 type Worker struct{}
 
@@ -66,6 +71,48 @@ func (w *Worker) FetchFile(req *FetchFileRequest, resp *FetchFileResponse) error
 	return nil
 }
 
+// Lookup serves keyword queries from the in-memory index
+func (w *Worker) Lookup(req *LookupRequest, resp *LookupResponse) error {
+	indexMu.RLock()
+	defer indexMu.RUnlock()
+	if indexMap != nil {
+		resp.URLs = indexMap[req.Keyword]
+	}
+	return nil
+}
+
+// loadIndex reads mr-out JSON files from /tmp/mr into indexMap
+func loadIndex(files []string) error {
+	matches := files
+	if len(matches) == 0 {
+		var err error
+		matches, err = filepath.Glob("/tmp/mr/mr-out-*.json")
+		if err != nil {
+			return err
+		}
+	}
+	m := make(map[string][]string)
+	for _, name := range matches {
+		path := filepath.Join("/tmp/mr", filepath.Base(name))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var partial map[string][]string
+		if err := json.Unmarshal(data, &partial); err != nil {
+			return err
+		}
+		for word, urls := range partial {
+			m[word] = append(m[word], urls...)
+		}
+	}
+	indexMu.Lock()
+	indexMap = m
+	indexMu.Unlock()
+	log.Printf("index loaded: %d words from %d shards", len(m), len(matches))
+	return nil
+}
+
 // Replicate pulls a shard from another worker and stores it locally (optional RPC path)
 func (w *Worker) Replicate(req *ReplicateRequest, resp *ReplicateResponse) error {
 	client, err := dialRPC(req.SourceAddr)
@@ -109,6 +156,23 @@ func ensureMRDir() error {
 
 type wordURLs map[string][]string
 
+type crawlResult struct {
+	pageURL string
+	text    string
+	links   []string
+}
+
+func linkAllowed(raw, allowedHost string) bool {
+	if allowedHost == "" {
+		return true
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Hostname(), allowedHost)
+}
+
 /*
 crawlBatch fetches each URL, tokenises with cleanText, hashes words to reduce buckets,
 and writes intermediate-{task}-{bucket}.json files plus the union of discovered links.
@@ -122,13 +186,49 @@ func crawlBatch(taskID int, urls []string, numReduce int, sw map[string]bool) ([
 		buckets[i] = make(wordURLs)
 	}
 	var allLinks []string
-	for _, pageURL := range urls {
-		text, links := crawl(pageURL)
-		allLinks = append(allLinks, links...)
-		words := cleanText(text, sw)
+	allowedHost := strings.TrimSpace(os.Getenv("CRAWL_ALLOWED_HOST"))
+	parallelism := readIntEnv("CRAWL_PARALLELISM", 12)
+	if parallelism > len(urls) {
+		parallelism = len(urls)
+	}
+
+	jobs := make(chan string)
+	results := make(chan crawlResult)
+	var wg sync.WaitGroup
+	for i := 0; i < parallelism; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for pageURL := range jobs {
+				text, links := crawl(pageURL)
+				results <- crawlResult{pageURL: pageURL, text: text, links: links}
+			}
+		}()
+	}
+	go func() {
+		for _, pageURL := range urls {
+			jobs <- pageURL
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+	}()
+
+	for result := range results {
+		for _, link := range result.links {
+			if linkAllowed(link, allowedHost) {
+				allLinks = append(allLinks, link)
+			}
+		}
+		pageWords := make(map[string]bool)
+		words := cleanText(result.text, sw)
 		for _, word := range words {
+			if pageWords[word] {
+				continue
+			}
+			pageWords[word] = true
 			b := ihash(word) % numReduce
-			buckets[b][word] = append(buckets[b][word], pageURL)
+			buckets[b][word] = append(buckets[b][word], result.pageURL)
 		}
 	}
 	for b := 0; b < numReduce; b++ {
@@ -165,44 +265,48 @@ func reduceBatch(reduceID int, numCrawl int, crawlAddrs []string) error {
 		return err
 	}
 	merged := make(wordURLs)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
 	errs := make([]error, numCrawl)
 	for crawlID := 0; crawlID < numCrawl; crawlID++ {
+		fn := fmt.Sprintf("/tmp/mr/intermediate-%d-%d.json", crawlID, reduceID)
+		data, err := os.ReadFile(fn)
+		if err == nil {
+			var partial wordURLs
+			if err := json.Unmarshal(data, &partial); err != nil {
+				errs[crawlID] = err
+				continue
+			}
+			for w, urls := range partial {
+				merged[w] = append(merged[w], urls...)
+			}
+			continue
+		}
 		addr := crawlAddrs[crawlID]
 		if addr == "" {
 			errs[crawlID] = fmt.Errorf("missing crawl worker for task %d", crawlID)
 			continue
 		}
-		wg.Add(1)
-		go func(mid int, workerAddr string) {
-			defer wg.Done()
-			client, err := dialRPC(workerAddr)
-			if err != nil {
-				errs[mid] = err
-				return
-			}
-			defer client.Close()
-			fn := fmt.Sprintf("/tmp/mr/intermediate-%d-%d.json", mid, reduceID)
-			freq := &FetchFileRequest{Filename: fn}
-			fresp := &FetchFileResponse{}
-			if err := client.Call("Worker.FetchFile", freq, fresp); err != nil {
-				errs[mid] = err
-				return
-			}
-			var partial wordURLs
-			if err := json.Unmarshal(fresp.Data, &partial); err != nil {
-				errs[mid] = err
-				return
-			}
-			mu.Lock()
-			for w, urls := range partial {
-				merged[w] = append(merged[w], urls...)
-			}
-			mu.Unlock()
-		}(crawlID, addr)
+		client, err := dialRPC(addr)
+		if err != nil {
+			errs[crawlID] = err
+			continue
+		}
+		freq := &FetchFileRequest{Filename: fn}
+		fresp := &FetchFileResponse{}
+		if err := client.Call("Worker.FetchFile", freq, fresp); err != nil {
+			errs[crawlID] = err
+			client.Close()
+			continue
+		}
+		client.Close()
+		var partial wordURLs
+		if err := json.Unmarshal(fresp.Data, &partial); err != nil {
+			errs[crawlID] = err
+			continue
+		}
+		for w, urls := range partial {
+			merged[w] = append(merged[w], urls...)
+		}
 	}
-	wg.Wait()
 	for _, e := range errs {
 		if e != nil {
 			return e
@@ -336,6 +440,15 @@ func runWorker(workerID string, sw map[string]bool) {
 				log.Printf("replicate error: %v", err)
 			}
 			report(coord, workerID, "replicate", resp.TaskID, ok, nil)
+
+		case "loadindex":
+			log.Printf("worker %s: loadindex", workerID)
+			err := loadIndex(resp.Filenames)
+			ok := err == nil
+			if err != nil {
+				log.Printf("loadindex error: %v", err)
+			}
+			report(coord, workerID, "loadindex", 0, ok, nil)
 
 		case "wait":
 			time.Sleep(400 * time.Millisecond)

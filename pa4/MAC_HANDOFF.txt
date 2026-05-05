@@ -1,0 +1,71 @@
+PA5 handoff for Mac
+Recorded at: 2026-05-04 23:57:33 -07:00
+
+Current status
+- Final fs1d recording/demo reached search and client scenario 8.
+- Scenario 8 client evidence:
+  client: requests=1000 avg_latency_last_1000=161ms
+- Final filtered log saved:
+  final-recording-filtered.log
+- Full raw log backup saved:
+  final-recording-full.log
+
+Graph times recorded so far
+- s1a = 9.5s
+- s1b = 21.6s
+- s1c = 334.6s
+- s1d = 907.0s
+- s2c = 907.0s  (same settings as s1d)
+- s3a = 907.0s  (same settings as s1d)
+
+Still needed for graphs
+- s1e
+- s2a
+- s2b
+- s3b
+- s3c
+
+Recommended remaining-run commands
+Run from pa4:
+
+make down
+make clean
+make image
+
+CRAWL_PARALLELISM=8 CRAWL_MAX_BYTES=1048576 make fs1e
+grep total_elapsed coord-logs/coordinator.log
+Ctrl+C, then make down && make clean
+
+CRAWL_PARALLELISM=8 CRAWL_MAX_BYTES=1048576 make fs2a
+grep total_elapsed coord-logs/coordinator.log
+Ctrl+C, then make down && make clean
+
+CRAWL_PARALLELISM=8 CRAWL_MAX_BYTES=1048576 make fs2b
+grep total_elapsed coord-logs/coordinator.log
+Ctrl+C, then make down && make clean
+
+CRAWL_PARALLELISM=8 CRAWL_MAX_BYTES=1048576 make fs3b
+grep total_elapsed coord-logs/coordinator.log
+Ctrl+C, then make down && make clean
+
+CRAWL_PARALLELISM=8 CRAWL_MAX_BYTES=1048576 make fs3c
+grep total_elapsed coord-logs/coordinator.log
+Ctrl+C, then make down && make clean
+
+After all times are collected
+- Fill time_y1/time_y2/time_y3 in plot_graphs.py.
+- Run:
+  python plot_graphs.py
+- Submit pa5_graphs.png, screen recording, go/docker/README files.
+
+Important stability notes
+- Keep at least 10-15 GB free disk space before running big scenarios.
+- If Docker OOMs again, use:
+  CRAWL_PARALLELISM=4 CRAWL_MAX_BYTES=524288 make <scenario>
+- Do not add mr-output, coord-logs, __pycache__, or .gocache to Git.
+
+Git add command for PA5 work
+git add pa4/*.go pa4/Dockerfile pa4/docker-compose.yml pa4/Makefile pa4/README.md pa4/plot_graphs.py pa4/keywords.txt pa4/seed-urls.txt pa4/stopword.txt pa4/final-recording-filtered.log pa4/final-recording-full.log pa4/MAC_HANDOFF.txt
+
+Suggested commit message
+git commit -m "Implement PA5 search engine and benchmark optimizations"

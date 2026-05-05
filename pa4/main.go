@@ -1,13 +1,12 @@
 /*
-main.go is the entry point for both coordinator and worker.
-ROLE env var picks which role to run; coordinator reads SEED_FILE / MAX_URLS / NUM_REDUCE.
+main.go is the entry point for coordinator, worker, and client.
+ROLE env var picks which role to run.
 */
 package main
 
 import (
 	"log"
 	"os"
-	"time"
 )
 
 func main() {
@@ -21,13 +20,13 @@ func main() {
 		l := startRPCServer(c)
 		defer l.Close()
 		log.Printf("coordinator listening on %s", CoordinatorListenAddr)
-		for !c.Done() {
-			time.Sleep(100 * time.Millisecond)
-		}
-		log.Println("coordinator shutting down")
+		// stay alive forever to serve Search RPCs
+		select {}
 	case "worker":
 		workerMain()
+	case "client":
+		clientMain()
 	default:
-		log.Fatal("ROLE must be coordinator or worker")
+		log.Fatal("ROLE must be coordinator, worker, or client")
 	}
 }

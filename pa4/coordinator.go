@@ -5,6 +5,8 @@ heartbeats, timeouts, and replication scheduling so each reduce shard has two li
 package main
 
 import (
+	"fmt"
+	"hash/fnv"
 	"log"
 	"net"
 	"net/rpc"
@@ -14,6 +16,17 @@ import (
 	"sync"
 	"time"
 )
+
+func openLogFile() (*os.File, error) {
+	os.MkdirAll("/tmp/coord", 0o755)
+	return os.OpenFile("/tmp/coord/coordinator.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+}
+
+func coordIhash(key string) int {
+	h := fnv.New32a()
+	h.Write([]byte(key))
+	return int(h.Sum32() & 0x7fffffff)
+}
 
 // task states (same strings idea as PA3)
 const (
@@ -27,6 +40,7 @@ const (
 	PhaseCrawl    = "crawl"
 	PhaseReduce   = "reduce"
 	PhaseComplete = "complete"
+	PhaseSearch   = "search"
 )
 
 // how long an in-flight crawl/reduce can run before we mark it idle again
@@ -40,11 +54,12 @@ const HeartbeatMiss = 3
 
 // one crawl batch handed to a worker
 type cTask struct {
-	ID         int
-	State      string
-	WorkerID   string
-	URLs       []string
-	AssignedAt time.Time
+	ID          int
+	State       string
+	WorkerID    string
+	URLs        []string
+	AssignedAt  time.Time
+	AssignCount int // >0 means this is a reassignment
 }
 
 // one reduce shard task
@@ -79,6 +94,8 @@ type Coordinator struct {
 	crawlWorkerAddr []string
 	maxURLs         int
 	numReduce       int
+	batchSize       int
+	startTime       time.Time
 
 	workers map[string]*workerInfo
 
@@ -90,18 +107,31 @@ type Coordinator struct {
 	done  bool
 
 	repPending map[string][]replJob
+
+	// search phase
+	indexLoadSent map[string]bool
+	indexLoaded   map[string]bool
+
+	logFile *os.File
 }
 
 // newCoordinator loads seed URLs, starts timeout/heartbeat/replication loops
 func newCoordinator(seedFile string, maxURLs, numReduce int) *Coordinator {
+	bs := readIntEnv("BATCH_SIZE", BatchSize)
+	lf, _ := openLogFile()
 	c := &Coordinator{
-		visited:    make(map[string]bool),
-		workers:    make(map[string]*workerInfo),
-		replicas:   make(map[int][]string),
-		repPending: make(map[string][]replJob),
-		maxURLs:    maxURLs,
-		numReduce:  numReduce,
-		phase:      PhaseCrawl,
+		visited:       make(map[string]bool),
+		workers:       make(map[string]*workerInfo),
+		replicas:      make(map[int][]string),
+		repPending:    make(map[string][]replJob),
+		indexLoadSent: make(map[string]bool),
+		indexLoaded:   make(map[string]bool),
+		maxURLs:       maxURLs,
+		numReduce:     numReduce,
+		batchSize:     bs,
+		phase:         PhaseCrawl,
+		startTime:     time.Now(),
+		logFile:       lf,
 	}
 	data, err := os.ReadFile(seedFile)
 	if err != nil {
@@ -143,7 +173,7 @@ func (c *Coordinator) getNextBatch() []string {
 		return nil
 	}
 	var batch []string
-	for len(batch) < BatchSize && len(c.frontier) > 0 && len(c.visited) < c.maxURLs {
+	for len(batch) < c.batchSize && len(c.frontier) > 0 && len(c.visited) < c.maxURLs {
 		u := c.frontier[0]
 		c.frontier = c.frontier[1:]
 		if c.visited[u] {
@@ -211,7 +241,7 @@ func (c *Coordinator) tryAdvanceToReduce() {
 			c.reduceTasks[i] = rTask{ID: i, State: TaskIdle}
 		}
 	}
-	log.Printf("crawl done (%d URLs visited), starting reduce", len(c.visited))
+	c.logf("crawl done (%d URLs visited) elapsed=%.1fs, starting reduce", len(c.visited), time.Since(c.startTime).Seconds())
 	c.phase = PhaseReduce
 }
 
@@ -238,8 +268,8 @@ func (c *Coordinator) checkGlobalDone() {
 			return
 		}
 	}
-	c.done = true
-	log.Println("job complete (replication satisfied)")
+	c.phase = PhaseSearch
+	c.logf("PHASE search: replication satisfied, index load starting, total_elapsed=%.1fs", time.Since(c.startTime).Seconds())
 }
 
 func (c *Coordinator) aliveReplicaCount(reduceID int) int {
@@ -263,6 +293,25 @@ func (c *Coordinator) addReplicaUnique(reduceID int, addr string) {
 		}
 	}
 	c.replicas[reduceID] = append(c.replicas[reduceID], addr)
+}
+
+func (c *Coordinator) logf(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	log.Print(msg)
+	if c.logFile != nil {
+		fmt.Fprintln(c.logFile, msg)
+	}
+}
+
+func (c *Coordinator) workerHasReplicas(addr string) bool {
+	for r := 0; r < c.numReduce; r++ {
+		for _, a := range c.replicas[r] {
+			if a == addr {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (c *Coordinator) pickReplicaTarget(source string, reduceID int) string {
@@ -296,7 +345,7 @@ func (c *Coordinator) hasPendingRepl(reduceID int) bool {
 }
 
 func (c *Coordinator) scheduleReplicaIfNeededLocked(reduceID int) {
-	if c.phase != PhaseComplete && c.phase != PhaseReduce {
+	if c.phase != PhaseComplete && c.phase != PhaseReduce && c.phase != PhaseSearch {
 		return
 	}
 	if reduceID < 0 || reduceID >= c.numReduce {
@@ -337,7 +386,7 @@ func (c *Coordinator) scheduleReplicaIfNeededLocked(reduceID int) {
 		filename:   fn,
 		reduceID:   reduceID,
 	})
-	log.Printf("scheduled replication of %s onto %s (reduce %d)", fn, target, reduceID)
+	c.logf("REPLICATE %s ON WORKER %s", fn, target)
 }
 
 // Register is called by each worker on startup so the coordinator knows its address
@@ -361,12 +410,6 @@ func (c *Coordinator) Register(req *RegisterRequest, resp *RegisterResponse) err
 func (c *Coordinator) GetTask(req *GetTaskRequest, resp *GetTaskResponse) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	if c.done {
-		resp.TaskType = "exit"
-		resp.Done = true
-		return nil
-	}
 
 	c.tryAdvanceToReduce()
 
@@ -416,6 +459,7 @@ func (c *Coordinator) GetTask(req *GetTaskRequest, resp *GetTaskResponse) error 
 				c.reduceTasks[i].State = TaskInProgress
 				c.reduceTasks[i].AssignedAt = time.Now()
 				c.reduceTasks[i].WorkerID = req.WorkerID
+				c.logf("ASSIGN REDUCE TASK %d TO WORKER %s", i, req.WorkerID)
 				resp.TaskType = "reduce"
 				resp.TaskID = i
 				resp.NumReduce = c.numReduce
@@ -433,11 +477,6 @@ func (c *Coordinator) GetTask(req *GetTaskRequest, resp *GetTaskResponse) error 
 			c.scheduleReplicaIfNeededLocked(r)
 		}
 		c.checkGlobalDone()
-		if c.done {
-			resp.TaskType = "exit"
-			resp.Done = true
-			return nil
-		}
 		resp.TaskType = "wait"
 		return nil
 
@@ -446,9 +485,22 @@ func (c *Coordinator) GetTask(req *GetTaskRequest, resp *GetTaskResponse) error 
 			c.scheduleReplicaIfNeededLocked(r)
 		}
 		c.checkGlobalDone()
-		if c.done {
-			resp.TaskType = "exit"
-			resp.Done = true
+		resp.TaskType = "wait"
+		return nil
+
+	case PhaseSearch:
+		if !c.indexLoadSent[req.WorkerID] && c.workerHasReplicas(req.WorkerID) {
+			c.indexLoadSent[req.WorkerID] = true
+			resp.TaskType = "loadindex"
+			resp.TaskID = 0
+			for r := 0; r < c.numReduce; r++ {
+				for _, addr := range c.replicas[r] {
+					if addr == req.WorkerID {
+						resp.Filenames = append(resp.Filenames, "mr-out-"+strconv.Itoa(r)+".json")
+						break
+					}
+				}
+			}
 			return nil
 		}
 		resp.TaskType = "wait"
@@ -468,6 +520,7 @@ func (c *Coordinator) assignReduceIfIdle(workerID string, resp *GetTaskResponse)
 			c.reduceTasks[i].State = TaskInProgress
 			c.reduceTasks[i].AssignedAt = time.Now()
 			c.reduceTasks[i].WorkerID = workerID
+			c.logf("ASSIGN REDUCE TASK %d TO WORKER %s", i, workerID)
 			resp.TaskType = "reduce"
 			resp.TaskID = i
 			resp.NumReduce = c.numReduce
@@ -480,13 +533,20 @@ func (c *Coordinator) assignReduceIfIdle(workerID string, resp *GetTaskResponse)
 }
 
 func (c *Coordinator) assignCrawl(i int, workerID string, resp *GetTaskResponse) {
-	c.crawlTasks[i].State = TaskInProgress
-	c.crawlTasks[i].AssignedAt = time.Now()
-	c.crawlTasks[i].WorkerID = workerID
+	t := &c.crawlTasks[i]
+	if t.AssignCount > 0 {
+		c.logf("REASSIGN MAP TASK %d TO WORKER %s", i, workerID)
+	} else {
+		c.logf("ASSIGN MAP TASK %d TO WORKER %s", i, workerID)
+	}
+	t.State = TaskInProgress
+	t.AssignedAt = time.Now()
+	t.WorkerID = workerID
+	t.AssignCount++
 	c.crawlWorkerAddr[i] = workerID
 	resp.TaskType = "crawl"
 	resp.TaskID = i
-	resp.URLs = append([]string(nil), c.crawlTasks[i].URLs...)
+	resp.URLs = append([]string(nil), t.URLs...)
 	resp.NumReduce = c.numReduce
 	resp.NumCrawlTasks = len(c.crawlTasks)
 }
@@ -508,6 +568,7 @@ func (c *Coordinator) ReportTask(req *ReportTaskRequest, resp *ReportTaskRespons
 		}
 		if req.Success {
 			t.State = TaskDone
+			c.logf("GET MAP TASK %d RESULT", req.TaskID)
 			c.addToFrontier(req.NewURLs)
 		} else {
 			t.State = TaskIdle
@@ -540,6 +601,15 @@ func (c *Coordinator) ReportTask(req *ReportTaskRequest, resp *ReportTaskRespons
 			}
 			c.addReplicaUnique(req.TaskID, req.WorkerID)
 		}
+	case "loadindex":
+		if req.Success {
+			c.indexLoaded[req.WorkerID] = true
+			c.logf("INDEX LOADED worker=%s", req.WorkerID)
+		} else {
+			// allow retry on next GetTask
+			c.indexLoadSent[req.WorkerID] = false
+		}
+		return nil
 	default:
 		return nil
 	}
@@ -557,22 +627,26 @@ func (c *Coordinator) ReportTask(req *ReportTaskRequest, resp *ReportTaskRespons
 
 // markWorkerDead resets tasks that lived on a dead worker and fixes replica bookkeeping
 func (c *Coordinator) markWorkerDead(dead string) {
-	log.Printf("marking worker dead: %s", dead)
+	c.logf("WORKER DEAD addr=%s", dead)
+	delete(c.indexLoaded, dead)
+	delete(c.indexLoadSent, dead)
 	wi := c.workers[dead]
 	if wi != nil {
 		wi.alive = false
 	}
 	resetCrawl := false
-	for i := range c.crawlTasks {
-		t := &c.crawlTasks[i]
-		if t.WorkerID == dead || (i < len(c.crawlWorkerAddr) && c.crawlWorkerAddr[i] == dead) {
-			if t.State == TaskDone || t.State == TaskInProgress {
-				resetCrawl = true
-			}
-			t.State = TaskIdle
-			t.WorkerID = ""
-			if i < len(c.crawlWorkerAddr) {
-				c.crawlWorkerAddr[i] = ""
+	if c.phase == PhaseCrawl {
+		for i := range c.crawlTasks {
+			t := &c.crawlTasks[i]
+			if t.WorkerID == dead || (i < len(c.crawlWorkerAddr) && c.crawlWorkerAddr[i] == dead) {
+				if t.State == TaskDone || t.State == TaskInProgress {
+					resetCrawl = true
+				}
+				t.State = TaskIdle
+				t.WorkerID = ""
+				if i < len(c.crawlWorkerAddr) {
+					c.crawlWorkerAddr[i] = ""
+				}
 			}
 		}
 	}
@@ -638,13 +712,12 @@ func (c *Coordinator) markWorkerDead(dead string) {
 		}
 	}
 	if !c.allReduceDone() {
-		c.done = false
-		if c.phase == PhaseComplete {
+		if c.phase == PhaseComplete || c.phase == PhaseSearch {
 			c.phase = PhaseReduce
 			c.repPending = make(map[string][]replJob)
 		}
 	}
-	if c.phase == PhaseReduce || c.phase == PhaseComplete {
+	if c.phase == PhaseReduce || c.phase == PhaseComplete || c.phase == PhaseSearch {
 		for rid := 0; rid < c.numReduce; rid++ {
 			if rid < len(c.reduceTasks) && c.reduceTasks[rid].State == TaskDone && c.aliveReplicaCount(rid) < 2 {
 				c.scheduleReplicaIfNeededLocked(rid)
@@ -660,6 +733,7 @@ func (c *Coordinator) workerHeartbeatFailed(addr string) {
 	if w == nil || !w.alive {
 		return
 	}
+	c.logf("HEARTBEAT FAILED FROM WORKER %s", addr)
 	w.missCount++
 	if w.missCount >= HeartbeatMiss {
 		c.markWorkerDead(addr)
@@ -745,7 +819,7 @@ func (c *Coordinator) replicationLoop() {
 	defer t.Stop()
 	for range t.C {
 		c.mu.Lock()
-		if c.phase == PhaseComplete || c.phase == PhaseReduce {
+		if c.phase == PhaseComplete || c.phase == PhaseReduce || c.phase == PhaseSearch {
 			for r := 0; r < c.numReduce; r++ {
 				c.scheduleReplicaIfNeededLocked(r)
 			}
@@ -759,6 +833,27 @@ func (c *Coordinator) Done() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.done
+}
+
+// Search is called by clients; routes to a worker that has the right shard loaded
+func (c *Coordinator) Search(req *SearchRequest, resp *SearchResponse) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.phase != PhaseSearch {
+		resp.Found = false
+		return nil
+	}
+	reduceID := coordIhash(req.Keyword) % c.numReduce
+	for _, addr := range c.replicas[reduceID] {
+		if w := c.workers[addr]; w != nil && w.alive && c.indexLoaded[addr] {
+			resp.WorkerAddr = addr
+			resp.Found = true
+			c.logf("ASSIGN SEARCH %s TO WORKER %s", req.Keyword, addr)
+			return nil
+		}
+	}
+	resp.Found = false
+	return nil
 }
 
 // startRPCServer registers the coordinator and listens for worker RPCs

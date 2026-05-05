@@ -8,6 +8,6 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY *.go stopword.txt seed-urls.txt ./
-RUN go build -o pa4 .
+RUN go build -o /usr/local/bin/pa4 .
 
-CMD ["./pa4"]
+CMD ["pa4"]

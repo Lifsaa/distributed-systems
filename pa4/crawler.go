@@ -5,6 +5,7 @@ loadStopWords, cleanText, and crawl (HTTP client with timeout, golang.org/x/net/
 package main
 
 import (
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,7 +17,7 @@ import (
 )
 
 // crawlHTTP bounds how long a single page fetch may block the worker
-var crawlHTTP = &http.Client{Timeout: 45 * time.Second}
+var crawlHTTP = &http.Client{Timeout: time.Duration(readIntEnv("CRAWL_TIMEOUT_SECONDS", 8)) * time.Second}
 
 // loadStopWords reads one stop word per line into a set
 func loadStopWords(filename string) (map[string]bool, error) {
@@ -70,8 +71,13 @@ func crawl(pageURL string) (string, []string) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", nil
 	}
+	ct := strings.ToLower(resp.Header.Get("Content-Type"))
+	if ct != "" && !strings.Contains(ct, "text/html") {
+		return "", nil
+	}
 
-	doc, err := html.Parse(resp.Body)
+	maxBytes := readIntEnv("CRAWL_MAX_BYTES", 2097152)
+	doc, err := html.Parse(io.LimitReader(resp.Body, int64(maxBytes)))
 	if err != nil {
 		return "", nil
 	}

@@ -4,10 +4,12 @@ services:
     environment:
       - ROLE=coordinator
       - SEED_FILE=/app/seed-urls.txt
-      - MAX_URLS=10000
+      - MAX_URLS=${MAX_URLS:-10000}
       - NUM_REDUCE=3
+      - BATCH_SIZE=${BATCH_SIZE:-100}
     volumes:
       - .:/app
+      - ./coord-logs:/tmp/coord
     networks:
       - searchnet
     healthcheck:
@@ -22,15 +24,36 @@ services:
     environment:
       - ROLE=worker
       - COORDINATOR_ADDR=coordinator:5001
+      - CRAWL_PARALLELISM=${CRAWL_PARALLELISM:-12}
+      - CRAWL_TIMEOUT_SECONDS=${CRAWL_TIMEOUT_SECONDS:-8}
+      - CRAWL_MAX_BYTES=${CRAWL_MAX_BYTES:-2097152}
+      - CRAWL_ALLOWED_HOST=${CRAWL_ALLOWED_HOST:-en.wikipedia.org}
     volumes:
       - .:/app
-      # Host-visible inverted index + intermediates (shared by all workers)
       - ./mr-output:/tmp/mr
     depends_on:
       coordinator:
         condition: service_healthy
     networks:
       - searchnet
+
+  client:
+    build: .
+    environment:
+      - ROLE=client
+      - COORDINATOR_ADDR=coordinator:5001
+      - NUM_THREADS=100
+      - NUM_REQUESTS=1000
+      - KEYWORD_FILE=/app/keywords.txt
+    volumes:
+      - .:/app
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - searchnet
+    profiles:
+      - search
 
 networks:
   searchnet:
