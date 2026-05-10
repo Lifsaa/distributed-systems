@@ -16,21 +16,21 @@ const WorkerPort = "5002"
 // BatchSize is how many URLs the coordinator hands out per crawl task
 const BatchSize = 100
 
-// sent by a worker on startup so the coordinator knows its RPC address
+// sent by a worker on startup so the coordinator knows its RPC address.
 type RegisterRequest struct {
 	WorkerAddr string
 }
 
-// coordinator's ack to a registration
+// coordinator's ack to a registration.
 type RegisterResponse struct{}
 
-// sent by a worker when it is ready for work
+// sent by a worker when it is ready for work.
 type GetTaskRequest struct {
 	WorkerID string
 }
 
-// sent back by the coordinator to tell the worker what to do
-// TaskType can be: "crawl", "reduce", "replicate", "loadindex", "wait", or "exit"
+// sent back by the coordinator to tell the worker what to do.
+// TaskType can be: "crawl", "reduce", "replicate", "loadindex", "wait", or "exit".
 type GetTaskResponse struct {
 	TaskType         string
 	TaskID           int
@@ -44,66 +44,66 @@ type GetTaskResponse struct {
 	Done             bool
 }
 
-// sent by a worker when it finishes or fails a task
+// sent by a worker when it finishes or fails a task.
 type ReportTaskRequest struct {
 	WorkerID string
 	TaskType string
 	TaskID   int
 	Success  bool
-	NewURLs []string // links discovered during crawl (only for crawl tasks)
+	NewURLs  []string // links discovered during crawl (only for crawl tasks)
 }
 
-// coordinator's ack to a report
+// coordinator's ack to a report.
 type ReportTaskResponse struct {
 	Success bool
 }
 
-// coordinator pings the worker; empty body
+// coordinator pings the worker; empty body.
 type HeartbeatRequest struct{}
 
-// worker replies whether it is alive
+// worker replies whether it is alive.
 type HeartbeatResponse struct {
 	Alive bool
 }
 
-// sent by another worker to read a file under /tmp/mr on this worker
+// sent by another worker to read a file under /tmp/mr on this worker.
 type FetchFileRequest struct {
 	Filename string
 }
 
-// raw bytes of the requested file
+// raw bytes of the requested file.
 type FetchFileResponse struct {
 	Data []byte
 }
 
-// optional pull path: dial SourceAddr and fetch Filename into local /tmp/mr
+// optional pull path: dial SourceAddr and fetch Filename into local /tmp/mr.
 type ReplicateRequest struct {
 	SourceAddr string
 	Filename   string
 }
 
-// unused payload on success; kept for symmetry with the handout RPC sketch
+// unused payload on success; kept for symmetry with the handout RPC sketch.
 type ReplicateResponse struct {
 	Data []byte
 }
 
-// client asks the coordinator which worker holds keyword's shard
+// client asks the coordinator which worker holds keyword's shard.
 type SearchRequest struct {
 	Keyword string
 }
 
-// coordinator returns the worker address to query directly
+// coordinator returns the worker address to query directly.
 type SearchResponse struct {
 	WorkerAddr string
 	Found      bool
 }
 
-// client asks a worker to look up a keyword in its in-memory index
+// client asks a worker to look up a keyword in its in-memory index.
 type LookupRequest struct {
 	Keyword string
 }
 
-// worker returns the URL list for the keyword
+// worker returns the URL list for the keyword.
 type LookupResponse struct {
 	URLs []string
 }

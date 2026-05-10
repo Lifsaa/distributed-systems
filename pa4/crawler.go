@@ -16,10 +16,10 @@ import (
 	"golang.org/x/net/html"
 )
 
-// crawlHTTP bounds how long a single page fetch may block the worker
+// crawlHTTP bounds how long a single page fetch may block the worker.
 var crawlHTTP = &http.Client{Timeout: time.Duration(readIntEnv("CRAWL_TIMEOUT_SECONDS", 8)) * time.Second}
 
-// loadStopWords reads one stop word per line into a set
+// loadStopWords reads one stop word per line into a set.
 func loadStopWords(filename string) (map[string]bool, error) {
 	sw := make(map[string]bool)
 	data, err := os.ReadFile(filename)
@@ -35,7 +35,7 @@ func loadStopWords(filename string) (map[string]bool, error) {
 	return sw, nil
 }
 
-// cleanText lowercases, strips punctuation, splits on space, removes stop words
+// cleanText lowercases, strips punctuation, splits on space, removes stop words.
 func cleanText(text string, stopWords map[string]bool) []string {
 	text = strings.ToLower(text)
 	clean := strings.Map(func(r rune) rune {
@@ -54,7 +54,7 @@ func cleanText(text string, stopWords map[string]bool) []string {
 	return result
 }
 
-// crawl returns visible text plus absolute http(s) links for one page (empty on failure)
+// crawl returns visible text plus absolute http(s) links for one page (empty on failure).
 func crawl(pageURL string) (string, []string) {
 	req, err := http.NewRequest("GET", pageURL, nil)
 	if err != nil {
@@ -90,6 +90,7 @@ func crawl(pageURL string) (string, []string) {
 	var text strings.Builder
 	var links []string
 
+	// Walk the HTML tree once, collecting page text and crawlable links.
 	var traverse func(*html.Node)
 	traverse = func(n *html.Node) {
 		if n.Type == html.ElementNode && (n.Data == "script" || n.Data == "style") {

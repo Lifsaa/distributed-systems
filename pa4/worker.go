@@ -154,6 +154,7 @@ func ensureMRDir() error {
 	return os.MkdirAll("/tmp/mr", 0o755)
 }
 
+// wordURLs is one piece of the inverted index: word -> pages containing it.
 type wordURLs map[string][]string
 
 type crawlResult struct {
@@ -162,6 +163,7 @@ type crawlResult struct {
 	links   []string
 }
 
+// linkAllowed keeps discovered links inside the configured crawl host when set.
 func linkAllowed(raw, allowedHost string) bool {
 	if allowedHost == "" {
 		return true
@@ -195,6 +197,8 @@ func crawlBatch(taskID int, urls []string, numReduce int, sw map[string]bool) ([
 	jobs := make(chan string)
 	results := make(chan crawlResult)
 	var wg sync.WaitGroup
+
+	// Start a small pool of crawler goroutines for this one batch.
 	for i := 0; i < parallelism; i++ {
 		wg.Add(1)
 		go func() {
@@ -206,6 +210,7 @@ func crawlBatch(taskID int, urls []string, numReduce int, sw map[string]bool) ([
 		}()
 	}
 	go func() {
+		// Feed URLs to the goroutines, then close results after all crawls finish.
 		for _, pageURL := range urls {
 			jobs <- pageURL
 		}
@@ -227,6 +232,7 @@ func crawlBatch(taskID int, urls []string, numReduce int, sw map[string]bool) ([
 				continue
 			}
 			pageWords[word] = true
+			// Shard each word by hash so the same word always goes to the same reducer.
 			b := ihash(word) % numReduce
 			buckets[b][word] = append(buckets[b][word], result.pageURL)
 		}
@@ -268,6 +274,7 @@ func reduceBatch(reduceID int, numCrawl int, crawlAddrs []string) error {
 	errs := make([]error, numCrawl)
 	for crawlID := 0; crawlID < numCrawl; crawlID++ {
 		fn := fmt.Sprintf("/tmp/mr/intermediate-%d-%d.json", crawlID, reduceID)
+		// Prefer local files, but fetch from the original crawl worker if needed.
 		data, err := os.ReadFile(fn)
 		if err == nil {
 			var partial wordURLs
@@ -323,7 +330,7 @@ func reduceBatch(reduceID int, numCrawl int, crawlAddrs []string) error {
 	return os.WriteFile(outPath, data, 0o644)
 }
 
-// replicateFile copies mr-out JSON from a peer into our /tmp/mr
+// replicateFile copies one final shard from a peer into our /tmp/mr.
 func replicateFile(sourceAddr, filename string) error {
 	if err := ensureMRDir(); err != nil {
 		return err
@@ -349,7 +356,7 @@ func coordinatorAddr() string {
 	return CoordinatorAddr
 }
 
-// report sends task completion back to the coordinator (best-effort logging on failure)
+// report sends task completion back to the coordinator (best-effort logging on failure).
 func report(client *rpc.Client, workerID, taskType string, taskID int, success bool, newURLs []string) {
 	req := &ReportTaskRequest{
 		WorkerID: workerID,
@@ -364,7 +371,7 @@ func report(client *rpc.Client, workerID, taskType string, taskID int, success b
 	}
 }
 
-// runWorker is the main loop for a worker process
+// runWorker is the main loop: pull a task, do it, report it, repeat.
 func runWorker(workerID string, sw map[string]bool) {
 	listenHost := "0.0.0.0:" + WorkerPort
 	startWorkerRPCServer(listenHost)

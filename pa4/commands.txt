@@ -1,0 +1,18 @@
+cd ~/Desktop/distributed-systems/pa4
+
+make down
+make clean
+rm -f coord-logs/coordinator.log
+
+CRAWL_PARALLELISM=12 CRAWL_MAX_BYTES=524288 make fs1d
+CRAWL_PARALLELISM=8 CRAWL_MAX_BYTES=1048576 make fs1d
+CRAWL_PARALLELISM=12 CRAWL_MAX_BYTES=262144 make fs1d
+
+docker compose ps
+docker stop pa4-worker-2
+docker start pa4-worker-2
+
+cp coord-logs/coordinator.log scenario4.log
+cp coord-logs/coordinator.log scenario5.log
+cp coord-logs/coordinator.log scenario6.log
+cp coord-logs/coordinator.log scenario7.log

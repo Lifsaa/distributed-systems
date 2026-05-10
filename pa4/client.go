@@ -1,4 +1,3 @@
-
 /*
 client.go: runs p threads indefinitely, each sending search queries via
 Coordinator.Search (routing) then Worker.Lookup (in-memory index).
@@ -20,6 +19,7 @@ import (
 func clientMain() {
 	numThreads := readIntEnv("NUM_THREADS", 100)
 
+	// Keywords are the sample search terms the client keeps querying.
 	keywords := loadKeywords()
 	if len(keywords) == 0 {
 		log.Fatal("client: no keywords loaded")
@@ -44,6 +44,7 @@ func clientMain() {
 		go func() {
 			r := rand.New(rand.NewSource(time.Now().UnixNano()))
 			for {
+				// Each goroutine acts like a user repeatedly searching one keyword.
 				kw := keywords[r.Intn(len(keywords))]
 				start := time.Now()
 				urls, _ := searchKeyword(coordAddr, kw)
@@ -77,6 +78,7 @@ func clientMain() {
 	}
 }
 
+// searchKeyword asks the coordinator for the shard holder, then queries that worker.
 func searchKeyword(coordAddr, keyword string) ([]string, bool) {
 	cc, err := dialRPC(coordAddr)
 	if err != nil {
@@ -104,6 +106,7 @@ func searchKeyword(coordAddr, keyword string) ([]string, bool) {
 	return lresp.URLs, true
 }
 
+// waitForSearchPhase polls until the coordinator can route at least one keyword.
 func waitForSearchPhase(coordAddr string, keywords []string) {
 	kw := keywords[0]
 	for {
@@ -123,6 +126,7 @@ func waitForSearchPhase(coordAddr string, keywords []string) {
 	}
 }
 
+// loadKeywords reads keywords.txt, with KEYWORDS=... as a small fallback.
 func loadKeywords() []string {
 	path := os.Getenv("KEYWORD_FILE")
 	if path == "" {

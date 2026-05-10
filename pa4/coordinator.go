@@ -149,6 +149,7 @@ func newCoordinator(seedFile string, maxURLs, numReduce int) *Coordinator {
 	return c
 }
 
+// addToFrontier keeps the crawl queue growing while skipping URLs we already know.
 func (c *Coordinator) addToFrontier(urls []string) {
 	for _, u := range urls {
 		if c.visited[u] {
@@ -168,6 +169,7 @@ func (c *Coordinator) addToFrontier(urls []string) {
 	}
 }
 
+// getNextBatch pops up to batchSize URLs and marks them visited before assigning.
 func (c *Coordinator) getNextBatch() []string {
 	if len(c.visited) >= c.maxURLs {
 		return nil
@@ -185,6 +187,7 @@ func (c *Coordinator) getNextBatch() []string {
 	return batch
 }
 
+// anyCrawlInProgress tells us if we still need to wait before reducing.
 func (c *Coordinator) anyCrawlInProgress() bool {
 	for i := range c.crawlTasks {
 		if c.crawlTasks[i].State == TaskInProgress {
@@ -194,6 +197,7 @@ func (c *Coordinator) anyCrawlInProgress() bool {
 	return false
 }
 
+// allCrawlDone means every crawl task we created has reported success.
 func (c *Coordinator) allCrawlDone() bool {
 	if len(c.crawlTasks) == 0 {
 		return false
@@ -206,6 +210,7 @@ func (c *Coordinator) allCrawlDone() bool {
 	return true
 }
 
+// allReduceDone means every reduce shard has been produced at least once.
 func (c *Coordinator) allReduceDone() bool {
 	if len(c.reduceTasks) == 0 {
 		return false
@@ -218,6 +223,7 @@ func (c *Coordinator) allReduceDone() bool {
 	return true
 }
 
+// tryAdvanceToReduce moves from crawl/map to reduce once crawling has no more work.
 func (c *Coordinator) tryAdvanceToReduce() {
 	if c.phase != PhaseCrawl {
 		return
@@ -245,6 +251,7 @@ func (c *Coordinator) tryAdvanceToReduce() {
 	c.phase = PhaseReduce
 }
 
+// tryAdvanceToComplete waits for all reduce shards before starting replication checks.
 func (c *Coordinator) tryAdvanceToComplete() {
 	if c.phase != PhaseReduce {
 		return
@@ -256,6 +263,7 @@ func (c *Coordinator) tryAdvanceToComplete() {
 	c.phase = PhaseComplete
 }
 
+// checkGlobalDone enters search only after every shard has two live copies.
 func (c *Coordinator) checkGlobalDone() {
 	if c.phase != PhaseComplete {
 		return
@@ -272,6 +280,7 @@ func (c *Coordinator) checkGlobalDone() {
 	c.logf("PHASE search: replication satisfied, index load starting, total_elapsed=%.1fs", time.Since(c.startTime).Seconds())
 }
 
+// aliveReplicaCount counts distinct live workers holding this shard.
 func (c *Coordinator) aliveReplicaCount(reduceID int) int {
 	addrs := c.replicas[reduceID]
 	seen := make(map[string]bool)
@@ -286,6 +295,7 @@ func (c *Coordinator) aliveReplicaCount(reduceID int) int {
 	return n
 }
 
+// addReplicaUnique records a shard holder without double-counting the same worker.
 func (c *Coordinator) addReplicaUnique(reduceID int, addr string) {
 	for _, x := range c.replicas[reduceID] {
 		if x == addr {
@@ -303,6 +313,7 @@ func (c *Coordinator) logf(format string, args ...interface{}) {
 	}
 }
 
+// workerHasReplicas tells us whether a worker should load any index files.
 func (c *Coordinator) workerHasReplicas(addr string) bool {
 	for r := 0; r < c.numReduce; r++ {
 		for _, a := range c.replicas[r] {
@@ -314,6 +325,7 @@ func (c *Coordinator) workerHasReplicas(addr string) bool {
 	return false
 }
 
+// pickReplicaTarget chooses a live worker that does not already hold the shard.
 func (c *Coordinator) pickReplicaTarget(source string, reduceID int) string {
 	holders := make(map[string]bool)
 	for _, a := range c.replicas[reduceID] {
@@ -333,6 +345,7 @@ func (c *Coordinator) pickReplicaTarget(source string, reduceID int) string {
 	return best
 }
 
+// hasPendingRepl avoids queueing the same shard copy more than once.
 func (c *Coordinator) hasPendingRepl(reduceID int) bool {
 	for _, jobs := range c.repPending {
 		for _, j := range jobs {
@@ -344,6 +357,7 @@ func (c *Coordinator) hasPendingRepl(reduceID int) bool {
 	return false
 }
 
+// scheduleReplicaIfNeededLocked queues a copy job until the shard has two live copies.
 func (c *Coordinator) scheduleReplicaIfNeededLocked(reduceID int) {
 	if c.phase != PhaseComplete && c.phase != PhaseReduce && c.phase != PhaseSearch {
 		return
@@ -511,6 +525,7 @@ func (c *Coordinator) GetTask(req *GetTaskRequest, resp *GetTaskResponse) error 
 	return nil
 }
 
+// assignReduceIfIdle hands one idle reduce shard to the requesting worker.
 func (c *Coordinator) assignReduceIfIdle(workerID string, resp *GetTaskResponse) bool {
 	if len(c.reduceTasks) == 0 {
 		return false
@@ -532,6 +547,7 @@ func (c *Coordinator) assignReduceIfIdle(workerID string, resp *GetTaskResponse)
 	return false
 }
 
+// assignCrawl fills the RPC response with one crawl/map task.
 func (c *Coordinator) assignCrawl(i int, workerID string, resp *GetTaskResponse) {
 	t := &c.crawlTasks[i]
 	if t.AssignCount > 0 {
@@ -551,7 +567,7 @@ func (c *Coordinator) assignCrawl(i int, workerID string, resp *GetTaskResponse)
 	resp.NumCrawlTasks = len(c.crawlTasks)
 }
 
-// ReportTask is called when a worker finishes or fails a crawl/reduce/replicate step
+// ReportTask is called when a worker finishes or fails a crawl/reduce/replicate step.
 func (c *Coordinator) ReportTask(req *ReportTaskRequest, resp *ReportTaskResponse) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -625,7 +641,7 @@ func (c *Coordinator) ReportTask(req *ReportTaskRequest, resp *ReportTaskRespons
 	return nil
 }
 
-// markWorkerDead resets tasks that lived on a dead worker and fixes replica bookkeeping
+// markWorkerDead resets lost work and removes dead shard copies from bookkeeping.
 func (c *Coordinator) markWorkerDead(dead string) {
 	c.logf("WORKER DEAD addr=%s", dead)
 	delete(c.indexLoaded, dead)
@@ -726,6 +742,7 @@ func (c *Coordinator) markWorkerDead(dead string) {
 	}
 }
 
+// workerHeartbeatFailed counts misses; after enough misses the worker is dead.
 func (c *Coordinator) workerHeartbeatFailed(addr string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -740,6 +757,7 @@ func (c *Coordinator) workerHeartbeatFailed(addr string) {
 	}
 }
 
+// workerHeartbeatOK clears the miss counter for a worker that answered.
 func (c *Coordinator) workerHeartbeatOK(addr string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -783,7 +801,7 @@ func (c *Coordinator) heartbeatLoop() {
 	}
 }
 
-// timeoutLoop re-queues crawl/reduce tasks that have been running too long
+// timeoutLoop re-queues crawl/reduce tasks that have been running too long.
 func (c *Coordinator) timeoutLoop() {
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
@@ -813,7 +831,7 @@ func (c *Coordinator) timeoutLoop() {
 	}
 }
 
-// replicationLoop nudges replica counts toward two live copies per reduce shard
+// replicationLoop nudges replica counts toward two live copies per reduce shard.
 func (c *Coordinator) replicationLoop() {
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
@@ -835,7 +853,7 @@ func (c *Coordinator) Done() bool {
 	return c.done
 }
 
-// Search is called by clients; routes to a worker that has the right shard loaded
+// Search is called by clients; it routes a keyword to a worker with that shard loaded.
 func (c *Coordinator) Search(req *SearchRequest, resp *SearchResponse) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
