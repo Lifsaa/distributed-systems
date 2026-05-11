@@ -650,22 +650,7 @@ func (c *Coordinator) markWorkerDead(dead string) {
 	if wi != nil {
 		wi.alive = false
 	}
-	resetCrawl := false
-	if c.phase == PhaseCrawl {
-		for i := range c.crawlTasks {
-			t := &c.crawlTasks[i]
-			if t.WorkerID == dead || (i < len(c.crawlWorkerAddr) && c.crawlWorkerAddr[i] == dead) {
-				if t.State == TaskDone || t.State == TaskInProgress {
-					resetCrawl = true
-				}
-				t.State = TaskIdle
-				t.WorkerID = ""
-				if i < len(c.crawlWorkerAddr) {
-					c.crawlWorkerAddr[i] = ""
-				}
-			}
-		}
-	}
+	resetCrawl := c.resetLostCrawlTasks(dead)
 	if resetCrawl {
 		log.Printf("crawl data lost on %s — resetting reduce and crawl assignments", dead)
 		c.phase = PhaseCrawl
@@ -740,6 +725,29 @@ func (c *Coordinator) markWorkerDead(dead string) {
 			}
 		}
 	}
+}
+
+// resetLostCrawlTasks redoes map work whose intermediate files lived on dead.
+func (c *Coordinator) resetLostCrawlTasks(dead string) bool {
+	if c.phase != PhaseCrawl && c.phase != PhaseReduce {
+		return false
+	}
+	resetCrawl := false
+	for i := range c.crawlTasks {
+		t := &c.crawlTasks[i]
+		if t.WorkerID != dead && (i >= len(c.crawlWorkerAddr) || c.crawlWorkerAddr[i] != dead) {
+			continue
+		}
+		if t.State == TaskDone || t.State == TaskInProgress {
+			resetCrawl = true
+		}
+		t.State = TaskIdle
+		t.WorkerID = ""
+		if i < len(c.crawlWorkerAddr) {
+			c.crawlWorkerAddr[i] = ""
+		}
+	}
+	return resetCrawl
 }
 
 // workerHeartbeatFailed counts misses; after enough misses the worker is dead.
