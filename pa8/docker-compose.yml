@@ -1,0 +1,156 @@
+services:
+  replica1:
+    build: .
+    command:
+      - pa8
+      - server
+      - -id
+      - "1"
+      - -addr
+      - :5001
+      - -self
+      - replica1:5001
+      - -db
+      - /data/bank1.db
+      - -log
+      - /data/server1.log
+      - -peers
+      - 2=replica2:5002,3=replica3:5003,4=replica4:5004,5=replica5:5005
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./server-logs/replica1:/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5001"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  replica2:
+    build: .
+    command:
+      - pa8
+      - server
+      - -id
+      - "2"
+      - -addr
+      - :5002
+      - -self
+      - replica2:5002
+      - -db
+      - /data/bank2.db
+      - -log
+      - /data/server2.log
+      - -peers
+      - 1=replica1:5001,3=replica3:5003,4=replica4:5004,5=replica5:5005
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./server-logs/replica2:/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5002"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  replica3:
+    build: .
+    command:
+      - pa8
+      - server
+      - -id
+      - "3"
+      - -addr
+      - :5003
+      - -self
+      - replica3:5003
+      - -db
+      - /data/bank3.db
+      - -log
+      - /data/server3.log
+      - -peers
+      - 1=replica1:5001,2=replica2:5002,4=replica4:5004,5=replica5:5005
+    ports:
+      - "5003:5003"
+    volumes:
+      - ./server-logs/replica3:/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5003"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  replica4:
+    build: .
+    command:
+      - pa8
+      - server
+      - -id
+      - "4"
+      - -addr
+      - :5004
+      - -self
+      - replica4:5004
+      - -db
+      - /data/bank4.db
+      - -log
+      - /data/server4.log
+      - -peers
+      - 1=replica1:5001,2=replica2:5002,3=replica3:5003,5=replica5:5005
+    ports:
+      - "5004:5004"
+    volumes:
+      - ./server-logs/replica4:/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5004"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  replica5:
+    build: .
+    command:
+      - pa8
+      - server
+      - -id
+      - "5"
+      - -addr
+      - :5005
+      - -self
+      - replica5:5005
+      - -db
+      - /data/bank5.db
+      - -log
+      - /data/server5.log
+      - -peers
+      - 1=replica1:5001,2=replica2:5002,3=replica3:5003,4=replica4:5004
+    ports:
+      - "5005:5005"
+    volumes:
+      - ./server-logs/replica5:/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5005"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  tester:
+    build: .
+    command:
+      - pa8
+      - tester
+      - -replicas
+      - replica1=replica1:5001,replica2=replica2:5002,replica3=replica3:5003,replica4=replica4:5004,replica5=replica5:5005
+    depends_on:
+      replica1:
+        condition: service_healthy
+      replica2:
+        condition: service_healthy
+      replica3:
+        condition: service_healthy
+      replica4:
+        condition: service_healthy
+      replica5:
+        condition: service_healthy
+    profiles:
+      - test
