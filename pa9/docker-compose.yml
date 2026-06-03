@@ -1,0 +1,57 @@
+services:
+  ray-head:
+    build: .
+    command:
+      - sh
+      - -c
+      - >
+        ray start --head
+        --port=6379
+        --dashboard-host=0.0.0.0
+        --ray-client-server-port=10001
+        --num-cpus=1
+        --block
+    ports:
+      - "8265:8265"
+      - "10001:10001"
+
+  ray-worker-1:
+    build: .
+    depends_on:
+      - ray-head
+    command:
+      - sh
+      - -c
+      - sleep 5 && ray start --address=ray-head:6379 --num-cpus=2 --block
+
+  ray-worker-2:
+    build: .
+    depends_on:
+      - ray-head
+    command:
+      - sh
+      - -c
+      - sleep 5 && ray start --address=ray-head:6379 --num-cpus=2 --block
+
+  app:
+    build: .
+    depends_on:
+      - ray-head
+      - ray-worker-1
+      - ray-worker-2
+    environment:
+      TRIALS: ${TRIALS:-5000000}
+      CHUNKS: ${CHUNKS:-16}
+    command:
+      - sh
+      - -c
+      - >
+        sleep 10 &&
+        ray start --address=ray-head:6379 --num-cpus=0 &&
+        python -m src.main
+        --address auto
+        --trials $${TRIALS}
+        --chunks $${CHUNKS}
+        --output-dir outputs
+    volumes:
+      - ./outputs:/app/outputs
