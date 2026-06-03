@@ -10,6 +10,12 @@ import numpy as np
 from src.benchmark import RenderBenchmark
 
 
+def _prepare(path: str | Path) -> Path:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 def save_image(rgb: np.ndarray, output_path: str | Path) -> None:
     """Write an RGB image array to ``output_path`` as a PNG.
 
@@ -17,9 +23,7 @@ def save_image(rgb: np.ndarray, output_path: str | Path) -> None:
         rgb: ``uint8`` array of shape ``(height, width, 3)``.
         output_path: Destination file path.
     """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.imsave(output_path, rgb)
+    plt.imsave(_prepare(output_path), rgb)
 
 
 def save_speedup_chart(benchmark: RenderBenchmark, output_path: str | Path) -> None:
@@ -29,9 +33,6 @@ def save_speedup_chart(benchmark: RenderBenchmark, output_path: str | Path) -> N
         benchmark: Completed benchmark holding both timed renders.
         output_path: Destination file path.
     """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
     labels = ["Serial", "Ray"]
     seconds = [benchmark.serial.seconds, benchmark.parallel.seconds]
 
@@ -42,7 +43,7 @@ def save_speedup_chart(benchmark: RenderBenchmark, output_path: str | Path) -> N
     for index, value in enumerate(seconds):
         ax.text(index, value, f"{value:.2f}s", ha="center", va="bottom")
     fig.tight_layout()
-    fig.savefig(output_path)
+    fig.savefig(_prepare(output_path))
     plt.close(fig)
 
 
@@ -53,9 +54,6 @@ def save_results_csv(benchmark: RenderBenchmark, output_path: str | Path) -> Non
         benchmark: Completed benchmark.
         output_path: Destination file path.
     """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
     header = "width,height,max_iter,serial_seconds,ray_seconds,speedup"
     row = ",".join([
         str(benchmark.viewport.width),
@@ -65,4 +63,4 @@ def save_results_csv(benchmark: RenderBenchmark, output_path: str | Path) -> Non
         f"{benchmark.parallel.seconds:.4f}",
         f"{benchmark.speedup:.2f}",
     ])
-    output_path.write_text(header + "\n" + row + "\n", encoding="utf-8")
+    _prepare(output_path).write_text(header + "\n" + row + "\n", encoding="utf-8")
