@@ -1,26 +1,45 @@
-# Claude Code
+# Local agent/editor state
 .claude/
 CLAUDE.md
 .DS_Store
+
+# Archives and one-off submission bundles
 *.zip
+*.tar
+*.tar.gz
 output.txt
 
-# PA1 generated files
-pa1/index.json
-pa1/crawler.log
+# Build products
+projects/*/pa[0-9]*
+projects/*/mapreduce
+projects/*/search-engine
+
+# Logs, databases, and generated run state
+*.log
+*.db
+*.sqlite
+*.sqlite3
+**/coord-logs/
+**/server-logs/
+**/recordings/
+**/mr-output/
+**/outputs/
 
 # MapReduce generated files
-pa2/data.txt
-pa3/data.txt
-pa3/mapreduce
-pa3/mr-out-*
-pa3/split-*
-pa3/intermediate-*
-pa4/mr-output/
-pa4/coord-logs/
-pa4/mr-out-*
-pa4/split-*
-pa4/intermediate-*
-pa4/mapreduce
-pa4/pa4
-pa4/coord-logs/
+**/split-*
+**/intermediate-*
+**/mr-out-*
+**/mr-out-*.json
+
+# Web crawler generated index
+projects/web-crawler-indexer/index.json
+projects/web-crawler-indexer/crawler.log
+
+# Large local inputs
+projects/mapreduce-virtual-cluster/data.txt
+
+# Python local state
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+*.pyc

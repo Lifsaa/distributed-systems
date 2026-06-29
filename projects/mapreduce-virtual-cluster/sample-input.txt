@@ -1,0 +1,5 @@
+the quick brown fox jumps over the lazy dog the fox
+distributed systems make hidden coordination visible
+workers map input shards and reducers merge sorted counts
+replicas need logs heartbeats and careful failure handling
+measure latency throughput memory and tail behavior before optimizing

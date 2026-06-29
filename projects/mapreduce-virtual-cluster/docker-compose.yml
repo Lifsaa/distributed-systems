@@ -1,0 +1,34 @@
+services:
+  coordinator:
+    build: .
+    environment:
+      - ROLE=coordinator
+      - INPUT_FILE=/app/sample-input.txt
+    volumes:
+      - .:/app
+    networks:
+      - mrnet
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5001"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+      start_period: 120s
+
+  worker:
+    build: .
+    environment:
+      - ROLE=worker
+    volumes:
+      - .:/app
+    tmpfs:
+      - /tmp/mr:size=512m
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - mrnet
+
+networks:
+  mrnet:
+    driver: bridge
