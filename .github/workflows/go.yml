@@ -27,6 +27,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: projects/${{ matrix.project }}/go.mod
-          cache-dependency-path: projects/${{ matrix.project }}/go.sum
+          cache: false
       - run: go build ./...
       - run: go test ./...
