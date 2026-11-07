@@ -1,0 +1,32 @@
+name: go
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - web-crawler-indexer
+          - mapreduce-rpc
+          - mapreduce-virtual-cluster
+          - distributed-search-engine
+          - banking-rpc-sqlite
+          - replicated-banking-fixed-leader
+          - raft-banking-cluster
+    defaults:
+      run:
+        working-directory: projects/${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: projects/${{ matrix.project }}/go.mod
+          cache-dependency-path: projects/${{ matrix.project }}/go.sum
+      - run: go build ./...
+      - run: go test ./...

@@ -6,6 +6,20 @@ Class step: PA8 for CPE-469 Distributed Systems.
 
 This is the five-replica version of the banking service. Instead of one fixed leader, replicas run a Raft-style election. Followers redirect clients with a leader hint, and the leader commits banking operations after replication to a majority.
 
+## How it works
+
+```text
+client --deposit/withdraw/transfer--> any replica
+   ^                                      |
+   +------ "not leader, try <addr>" ------+   (followers send a leader hint)
+
+leader --AppendEntries + heartbeats--> 4 followers
+   |      followers whose election timeout fires start a vote (RequestVote)
+   |
+   +-- commit once a majority (3 of 5) has the entry, then apply it to SQLite
+   +-- walk back a lagging follower's log until it matches, then resend
+```
+
 ## What I worked on
 
 - Election timeouts and candidate/leader/follower roles.

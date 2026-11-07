@@ -1,18 +1,18 @@
-# PA8 Recording Script
+# Failure scenario walkthrough
 
 Use two terminals.
 
 Terminal 1 watches the cluster:
 
 ```bash
-cd /Users/lifsa/Desktop/distributed-systems/pa8
+cd projects/raft-banking-cluster
 make logs
 ```
 
 Terminal 2 runs the scenario commands:
 
 ```bash
-cd /Users/lifsa/Desktop/distributed-systems/pa8
+cd projects/raft-banking-cluster
 ```
 
 Replica numbers are examples. The real rule is to stop followers when the step

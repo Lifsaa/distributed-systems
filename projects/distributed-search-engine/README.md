@@ -6,6 +6,26 @@ Class step: PA5 for CPE-469 Distributed Systems. This used to be in the `pa4` fo
 
 This project crawls pages, builds sharded inverted indexes, replicates shard files, loads indexes into workers, and serves keyword searches through a coordinator.
 
+## How it works
+
+```text
+seed URLs
+    |
+    v
+coordinator  (frontier, task state, shard map; heartbeats every worker)
+    |
+    |  1. crawl      hands out URL batches; workers fetch and parse pages
+    |  2. reduce     workers build inverted-index shards
+    |  3. replicate  each shard is copied until it has 2 live holders
+    |  4. load       workers load their shards
+    v
+workers ....... a worker that misses 3 heartbeats is treated as dead;
+                its crawl or reduce task is reassigned after a timeout
+    ^
+    |  5. search
+client --keyword--> coordinator --routes to a live worker holding that shard
+```
+
 ## What I worked on
 
 - Splitting crawler work into batches.
