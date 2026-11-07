@@ -4,6 +4,11 @@ This repo collects my CPE-469 Distributed Systems projects. The projects start w
 
 Each folder has its own README with the original PA number, run commands, and the main files worth reading.
 
+**Start here** if you only have a few minutes:
+
+- [Distributed Search Engine](projects/distributed-search-engine): coordinator and workers crawl, build sharded inverted indexes, replicate shards, and route queries to live replicas.
+- [Raft Banking Cluster](projects/raft-banking-cluster): five replicas with leader election, heartbeats, majority commit, and follower log repair.
+
 ## Projects
 
 | Project | Class step | What it does | Systems pieces | Quick check |
